@@ -1,6 +1,6 @@
 {
   "name": "blockin-eth-driver",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "",
   "type": "module",
   "main": "dist/EthDriver.js",
@@ -12,11 +12,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "blockin": "^1.1.35",
+    "blockin": "^1.2.35",
     "buffer": "^6.0.3",
     "eth-sig-util": "^3.0.1",
     "ethers": "^5.6.8",
-    "moralis": "^1.8.0"
+    "moralis": "^2.22.5"
   },
   "devDependencies": {
     "typescript": "^4.7.3"

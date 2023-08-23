@@ -1,198 +1,213 @@
-import { CreateAssetParams, CreateTransferAssetParams, IChainDriver, UniversalTxn } from 'blockin';
-import { recoverPersonalSignature } from 'eth-sig-util';
-import { ethers } from 'ethers';
-import Moralis from "moralis/node.js";
-import { Buffer } from 'buffer';
+import { Balance, BigIntify, UintRange, convertBalance, convertUintRange } from "bitbadgesjs-proto"
+import { GetBadgeBalanceByAddressRoute, GetBadgeBalanceByAddressRouteSuccessResponse, OffChainBalancesMap, convertToCosmosAddress, getBalancesForIds } from "bitbadgesjs-utils"
+import { IChainDriver } from "blockin"
+import { Asset } from "blockin/dist/types/verify.types"
+import { Buffer } from "buffer"
+import { recoverPersonalSignature } from "eth-sig-util"
+import { ethers } from "ethers"
+import Moralis from 'moralis';
 
-interface MoralisDetails {
-    serverUrl: string;
-    appId: string;
-    masterKey: string;
-}
+import axiosApi from 'axios';
+const https = require('https');
 
+export const axios = axiosApi.create({
+  withCredentials: true,
+  headers: {
+    "Content-type": "application/json",
+  },
+  httpsAgent: new https.Agent({
+    rejectUnauthorized: false,
+  }),
+});
 /**
  * Ethereum implementation of the IChainDriver interface. This implementation is based off the Moralis API
  * and ethers.js library.
- * 
+ *
  * For documentation regarding what each function does, see the IChainDriver interface.
- * 
- * Note that the Blockin library also has many convenient, chain-generic functions that implement 
- * this logic for creating / verifying challenges. Before using,ou will have to setChainDriver(new EthDriver(.....)) first.
+ *
+ * Note that the Blockin library also has many convenient, chain-generic functions that implement
+ * this logic for creating / verifying challenges. Before using, you will have to setChainDriver(new EthDriver(.....)) first.
  */
-export default class EthDriver implements IChainDriver {
-    moralisDetails: MoralisDetails;
-    chain: "eth" | "bsc" | "polygon" | "avalanche" | "fantom" | "cronos"
+export default class EthDriver implements IChainDriver<bigint> {
+  moralisDetails
+  chain
+  constructor(chain: string, MORALIS_DETAILS: any) {
+    this.moralisDetails = MORALIS_DETAILS
+      ? MORALIS_DETAILS
+      : {
+        apiKey: '',
+      }
+    if (MORALIS_DETAILS) Moralis.start(this.moralisDetails)
+    this.chain = chain
+  }
 
-    constructor(chain?: any, MORALIS_DETAILS?: MoralisDetails) {
-        this.moralisDetails = MORALIS_DETAILS ? MORALIS_DETAILS : {
-            serverUrl: '',
-            appId: '',
-            masterKey: ''
-        };
+  async parseChallengeStringFromBytesToSign(txnBytes: Uint8Array) {
+    const txnString = new TextDecoder().decode(txnBytes)
+    const txnString2 = Buffer.from(txnString.substring(2), "hex").toString()
+    return txnString2
+  }
+  isValidAddress(address: string) {
+    return ethers.utils.isAddress(address)
+  }
+  async verifySignature(originalChallengeToUint8Array: Uint8Array, signedChallenge: Uint8Array, originalAddress: string) {
+    const original = new TextDecoder().decode(originalChallengeToUint8Array)
+    const signed = new TextDecoder().decode(signedChallenge)
+    const recoveredAddr = recoverPersonalSignature({
+      data: original,
+      sig: signed,
+    })
+    if (recoveredAddr.toLowerCase() !== originalAddress.toLowerCase()) {
+      throw `Signature Invalid: Expected ${originalAddress} but got ${recoveredAddr}`
+    }
+  }
 
-        if (MORALIS_DETAILS) Moralis.start(this.moralisDetails);
 
-        this.chain = chain;
+  async verifyAssets(address: string, resources: string[], _assets: Asset<bigint>[], balancesSnapshot?: object): Promise<any> {
+
+    let ethAssets: Asset<bigint>[] = []
+    let bitbadgesAssets: Asset<bigint>[] = []
+    if (resources) {
+
     }
 
-    /** Boilerplates - Not Implemented Yet */
-    async makeAssetTxn(assetParams: CreateAssetParams) {
-        throw 'Not implemented';
-        return this.createUniversalTxn({}, ``)
+    if (_assets) {
+      ethAssets = _assets.filter((elem) => elem.chain === "Ethereum")
+      bitbadgesAssets = _assets.filter((elem) => elem.chain === "BitBadges")
     }
 
-    async makeAssetTransferTxn(assetParams: CreateTransferAssetParams) {
-        throw 'Not implemented';
-        return this.createUniversalTxn({}, ``)
-    }
+    if (ethAssets.length === 0 && bitbadgesAssets.length === 0) return //No assets to verify
 
-    async sendTxn(signedTxnResult: any, txnId: string): Promise<any> {
-        throw 'Not implemented';
-        return;
-    }
+    if (bitbadgesAssets.length > 0) {
+      for (const asset of bitbadgesAssets) {
+        let docBalances: Balance<bigint>[] = []
+        if (!balancesSnapshot) {
+          const balancesRes: GetBadgeBalanceByAddressRouteSuccessResponse<string> = await axios.post(
+            "https://api.bitbadges.io" +
+            GetBadgeBalanceByAddressRoute(asset.collectionId, convertToCosmosAddress(address),),
+            {},
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": process.env.BITBADGES_API_KEY,
+              },
+            },
+          ).then((res) => {
+            return res.data
+          })
 
-    async parseChallengeStringFromBytesToSign(txnBytes: Uint8Array) {
-        const txnString = new TextDecoder().decode(txnBytes);
-        const txnString2 = Buffer.from(txnString.substring(2), "hex").toString();
-
-        return txnString2;
-    }
-
-    async lookupTransactionById(txnId: string) {
-        const options = {
-            chain: this.chain,
-            transaction_hash: txnId,
-        };
-        const transaction = await Moralis.Web3API.native.getTransaction(options);
-        return transaction;
-    }
-
-    async getAssetDetails(assetId: string | Number): Promise<any> {
-        const options = {
-            chain: this.chain,
-            addresses: [`${assetId}`],
-        };
-        const tokenMetadata = await Moralis.Web3API.token.getTokenMetadata(options);
-        return tokenMetadata;
-    }
-
-    async getAllAssetsForAddress(address: string): Promise<any> {
-        const options = {
-            chain: this.chain,
-            address
-        };
-
-        const accountAssets = await Moralis.Web3API.account.getNFTs(options);
-        return accountAssets['result'];
-    }
-
-    async getLastBlockIndex(): Promise<string> {
-        const lastBlock = await Moralis.Web3API.native.getDateToBlock({
-            date: `${new Date()}`
-        });
-
-        const lastBlockHash = lastBlock['block'];
-
-        const options = {
-            chain: this.chain, block_number_or_hash: `${lastBlockHash}`
-        };
-
-        // get block content on BSC
-        const transactions = await Moralis.Web3API.native.getBlock(options);
-
-
-        return transactions['hash'];
-    }
-
-    async getTimestampForBlock(blockIndexStr: string): Promise<string> {
-        const options = {
-            chain: this.chain,
-            block_number_or_hash: `${blockIndexStr}`
-        };
-
-        const transactions = await Moralis.Web3API.native.getBlock(options);
-
-        return transactions['timestamp'];
-    }
-
-    isValidAddress(address: string): boolean {
-        return ethers.utils.isAddress(address);
-    }
-
-    /**Not implemented */
-    getPublicKeyFromAddress(address: string): Uint8Array {
-        throw 'Not implemented';
-        return new Uint8Array(0);
-    }
-
-    async verifySignature(originalChallengeToUint8Array: Uint8Array, signedChallenge: Uint8Array, originalAddress: string): Promise<void> {
-        const original = new TextDecoder().decode(originalChallengeToUint8Array);
-        const signed = new TextDecoder().decode(signedChallenge);
-
-        const recoveredAddr = recoverPersonalSignature({
-            data: original,
-            sig: signed,
-        });
-
-        if (recoveredAddr.toLowerCase() !== originalAddress.toLowerCase()) {
-            throw `Signature Invalid: Expected ${originalAddress} but got ${recoveredAddr}`
-        }
-    }
-
-    async verifyOwnershipOfAssets(address: string, resources: string[], assetMinimumBalancesRequiredMap?: any, defaultMinimum?: number) {
-        if (!resources || resources.length == 0) return;
-
-        let assetIds: string[] = [];
-        if (resources) {
-            const filteredAssetIds = resources.filter(elem => elem.startsWith('Asset ID: '));
-            for (const assetStr of filteredAssetIds) {
-                const assetId = assetStr.substring(10);
-                assetIds.push(assetId);
-            }
+          docBalances = balancesRes.balance.balances.map((x) => convertBalance(x, BigIntify))
+        } else {
+          const cosmosAddress = convertToCosmosAddress(address)
+          const balancesSnapshotObj = balancesSnapshot as OffChainBalancesMap<bigint>
+          docBalances = balancesSnapshotObj[cosmosAddress] ? balancesSnapshotObj[cosmosAddress].map(x => convertBalance(x, BigIntify)) : []
         }
 
-        if (assetIds.length === 0) return;
-
-        const options = {
-            chain: this.chain,
-            address
-        };
-        const assets = (await Moralis.Web3API.account.getNFTs(options)).result;
-
-        const assetLookupData = {
-            assetsForAddress: assets,
-            address,
-        };
-
-        for (let i = 0; i < assetIds.length; i++) {
-            const assetId = assetIds[i];
-            const defaultBalance = defaultMinimum ? defaultMinimum : 1;
-            const minimumAmount = assetMinimumBalancesRequiredMap && assetMinimumBalancesRequiredMap[assetId] ? assetMinimumBalancesRequiredMap[assetId] : defaultBalance;
-
-            const requestedAsset = assets?.find((elem: any) => elem['token_address'].toString() === assetId);
-            if (!requestedAsset) {
-                throw `Address ${address} does not own requested asset : ${assetId}`;
-            }
-            console.log(`Success: Found asset in user's wallet: ${assetId}.`);
-            console.log('ASSET DETAILS', requestedAsset);
-
-            if (requestedAsset['amount'] && requestedAsset['amount'] < minimumAmount) {
-                throw `Address ${address} only owns ${requestedAsset['amount']} and does not meet minimum balance requirement of ${minimumAmount} for asset : ${assetId}`;
-            }
+        if (
+          !asset.assetIds.every(
+            (x) => typeof x === "object" && BigInt(x.start) >= 0 && BigInt(x.end) >= 0,
+          )
+        ) {
+          throw new Error(`All assetIds must be UintRanges for BitBadges compatibility`)
         }
 
-        return assetLookupData;
+        if (
+          asset.ownershipTimes &&
+          !asset.ownershipTimes.every(
+            (x) => typeof x === "object" && BigInt(x.start) >= 0 && BigInt(x.end) >= 0,
+          )
+        ) {
+          throw new Error(`All ownershipTimes must be UintRanges for BitBadges compatibility`)
+        }
+
+        if (
+          asset.mustOwnAmounts && !(typeof asset.mustOwnAmounts === "object" && BigInt(asset.mustOwnAmounts.start) >= 0 && BigInt(asset.mustOwnAmounts.end) >= 0)
+        ) {
+          throw new Error(`mustOwnAmount must be UintRange for BitBadges compatibility`)
+        }
+
+        if (!asset.ownershipTimes) {
+          asset.ownershipTimes = [{ start: BigInt(Date.now()), end: BigInt(Date.now()) }]
+        }
+
+        const balances = getBalancesForIds(
+          asset.assetIds.map((x) => convertUintRange(x as UintRange<bigint>, BigIntify)),
+          asset.ownershipTimes.map((x) => convertUintRange(x, BigIntify)),
+          docBalances,
+        )
+
+        const mustOwnAmount = asset.mustOwnAmounts
+        for (const balance of balances) {
+          if (balance.amount < mustOwnAmount.start) {
+            throw new Error(
+              `Address ${address} does not own enough of IDs ${balance.badgeIds
+                .map((x) => `${x.start}-${x.end}`)
+                .join(",")} from collection ${asset.collectionId
+              } to meet minimum balance requirement of ${mustOwnAmount.start}`,
+            )
+          }
+
+          if (balance.amount > mustOwnAmount.end) {
+            throw new Error(
+              `Address ${address} owns too much of IDs ${balance.badgeIds
+                .map((x) => `${x.start}-${x.end}`)
+                .join(",")} from collection ${asset.collectionId
+              } to meet maximum balance requirement of ${mustOwnAmount.end}`,
+            )
+          }
+        }
+      }
     }
 
-    /**
-     * Currently just a boilerplate
-     */
-    private createUniversalTxn(txn: any, message: string): UniversalTxn {
-        return {
-            txn,
-            message,
-            txnId: txn.txnId,
-            nativeTxn: txn
+    if (ethAssets.length > 0) {
+      const options = {
+        chain: this.chain,
+        address,
+      }
+      const assetsForAddress = (await Moralis.EvmApi.nft.getWalletNFTs(options)).result
+      for (let i = 0; i < ethAssets.length; i++) {
+        const asset = ethAssets[i]
+
+        if (asset.ownershipTimes && asset.ownershipTimes.length > 0) {
+          throw new Error(`Ownership times not supported for Ethereum assets`)
         }
+        if (
+          !asset.assetIds.every(
+            (x) => typeof x === "string"
+          )
+        ) {
+          throw new Error(`All assetIds must be strings for Ethereum compatibility`)
+        }
+
+        if (
+          asset.mustOwnAmounts && !(typeof asset.mustOwnAmounts === "object" && BigInt(asset.mustOwnAmounts.start) >= 0 && BigInt(asset.mustOwnAmounts.end) >= 0)
+        ) {
+          throw new Error(`mustOwnAmount must be UintRange for BitBadges compatibility`)
+        }
+
+
+        for (const assetId of ethAssets[i].assetIds) {
+          const requestedAsset = assetsForAddress?.find((elem) => elem.tokenAddress.toString() === ethAssets[i].collectionId && elem.tokenId.toString() === assetId)
+          const amount = requestedAsset?.amount ? BigInt(requestedAsset?.amount) : BigInt(0)
+          const mustOwnAmount = asset.mustOwnAmounts
+
+          const minimumAmount = BigInt(mustOwnAmount.start)
+          const maximumAmount = BigInt(mustOwnAmount.end)
+
+          if (amount < minimumAmount) {
+            throw new Error(
+              `Address ${address} does not own enough of asset ${assetId
+              } to meet minimum balance requirement of ${minimumAmount}`,
+            )
+          }
+
+          if (amount > maximumAmount) {
+            throw new Error(
+              `Address ${address} owns too much of asset ${assetId
+              } to meet maximum balance requirement of ${maximumAmount}`,
+            )
+          }
+        }
+      }
     }
+  }
 }
