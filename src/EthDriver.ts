@@ -8,7 +8,6 @@ import { ethers } from "ethers"
 import Moralis from 'moralis';
 
 import axiosApi from 'axios';
-const https = require('https');
 
 export const axios = axiosApi.create({
   withCredentials: true,
