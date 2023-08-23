@@ -15,9 +15,6 @@ export const axios = axiosApi.create({
   headers: {
     "Content-type": "application/json",
   },
-  httpsAgent: new https.Agent({
-    rejectUnauthorized: false,
-  }),
 });
 /**
  * Ethereum implementation of the IChainDriver interface. This implementation is based off the Moralis API
