@@ -1,6 +1,6 @@
 {
   "name": "blockin-eth-driver",
-  "version": "1.0.12",
+  "version": "1.0.14",
   "description": "",
   "type": "module",
   "main": "dist/EthDriver.js",
@@ -12,6 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bitbadgesjs-proto": "^0.1.83",
+    "bitbadgesjs-utils": "^1.1.166",
     "blockin": "^1.2.35",
     "buffer": "^6.0.3",
     "eth-sig-util": "^3.0.1",
