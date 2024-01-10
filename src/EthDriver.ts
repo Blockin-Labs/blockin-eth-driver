@@ -137,24 +137,44 @@ export default class EthDriver implements IChainDriver<bigint> {
         )
 
         const mustOwnAmount = asset.mustOwnAmounts
+        const mustSatisfyAll = asset.mustSatisfyForAllAssets;
+        let satisfiedForOne = false;
         for (const balance of balances) {
           if (balance.amount < mustOwnAmount.start) {
-            throw new Error(
-              `Address ${address} does not own enough of IDs ${balance.badgeIds
-                .map((x) => `${x.start}-${x.end}`)
-                .join(",")} from collection ${asset.collectionId
-              } to meet minimum balance requirement of ${mustOwnAmount.start}`,
-            )
+            if (mustSatisfyAll) {
+              throw new Error(
+                `Address ${address} does not own enough of IDs ${balance.badgeIds
+                  .map((x) => `${x.start}-${x.end}`)
+                  .join(",")} from collection ${asset.collectionId
+                } to meet minimum balance requirement of ${mustOwnAmount.start}`,
+              )
+            } else {
+              continue
+            }
           }
 
           if (balance.amount > mustOwnAmount.end) {
-            throw new Error(
-              `Address ${address} owns too much of IDs ${balance.badgeIds
-                .map((x) => `${x.start}-${x.end}`)
-                .join(",")} from collection ${asset.collectionId
-              } to meet maximum balance requirement of ${mustOwnAmount.end}`,
-            )
+            if (mustSatisfyAll) {
+              throw new Error(
+                `Address ${address} owns too much of IDs ${balance.badgeIds
+                  .map((x) => `${x.start}-${x.end}`)
+                  .join(",")} from collection ${asset.collectionId
+                } to meet maximum balance requirement of ${mustOwnAmount.end}`,
+              )
+            } else {
+              continue
+            }
           }
+
+          satisfiedForOne = true;
+        }
+
+        if (mustSatisfyAll) {
+          //we made it through all balances and didn't throw an error so we are good
+        } else if (!satisfiedForOne) {
+          throw new Error(
+            `Address ${address} did not meet the ownership requirements for any of the assets.`,
+          )
         }
       }
     }
@@ -185,7 +205,8 @@ export default class EthDriver implements IChainDriver<bigint> {
           throw new Error(`mustOwnAmount must be UintRange for BitBadges compatibility`)
         }
 
-
+        const mustSatisfyAll = asset.mustSatisfyForAllAssets;
+        let satisfiedForOne = false;
         for (const assetId of ethAssets[i].assetIds) {
           const requestedAsset = assetsForAddress?.find((elem) => elem.tokenAddress.toString() === ethAssets[i].collectionId && elem.tokenId.toString() === assetId)
           const amount = requestedAsset?.amount ? BigInt(requestedAsset?.amount) : BigInt(0)
@@ -195,18 +216,36 @@ export default class EthDriver implements IChainDriver<bigint> {
           const maximumAmount = BigInt(mustOwnAmount.end)
 
           if (amount < minimumAmount) {
-            throw new Error(
-              `Address ${address} does not own enough of asset ${assetId
-              } to meet minimum balance requirement of ${minimumAmount}`,
-            )
+            if (mustSatisfyAll) {
+              throw new Error(
+                `Address ${address} does not own enough of asset ${assetId
+                } to meet minimum balance requirement of ${minimumAmount}`,
+              )
+            } else {
+              continue
+            }
           }
 
           if (amount > maximumAmount) {
-            throw new Error(
-              `Address ${address} owns too much of asset ${assetId
-              } to meet maximum balance requirement of ${maximumAmount}`,
-            )
+            if (mustSatisfyAll) {
+              throw new Error(
+                `Address ${address} owns too much of asset ${assetId
+                } to meet maximum balance requirement of ${maximumAmount}`,
+              )
+            } else {
+              continue
+            }
           }
+
+          satisfiedForOne = true;
+        }
+
+        if (mustSatisfyAll) {
+          //we made it through all balances and didn't throw an error so we are good
+        } else if (!satisfiedForOne) {
+          throw new Error(
+            `Address ${address} did not meet the ownership requirements for any of the assets.`,
+          )
         }
       }
     }
